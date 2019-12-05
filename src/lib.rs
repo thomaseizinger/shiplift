@@ -883,7 +883,7 @@ fn get_docker_for_tcp(tcp_host_str: String) -> Docker {
             config.root_store.add_pem_file(&mut ca).expect("cannot add root ca");
         }
 
-        println!("Initialized docker over encrypted tcp");
+        let tcp_host_str = tcp_host_str.replace("tcp", "https");
 
         Docker {
             transport: Transport::EncryptedTcp {
