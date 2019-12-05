@@ -48,12 +48,10 @@ use crate::{
 use futures::{future::Either, Future, IntoFuture, Stream};
 use hyper::{client::HttpConnector, Body, Client, Method, Uri};
 #[cfg(feature = "tls")]
-use hyper_openssl::HttpsConnector;
+use hyper_rustls::HttpsConnector;
 #[cfg(feature = "unix-socket")]
 use hyperlocal::UnixConnector;
 use mime::Mime;
-#[cfg(feature = "tls")]
-use openssl::ssl::{SslConnector, SslFiletype, SslMethod};
 use serde_json::Value;
 use std::{borrow::Cow, env, io::Read, iter, path::Path, time::Duration};
 use tokio_codec::{FramedRead, LinesCodec};
@@ -868,27 +866,27 @@ fn get_http_connector() -> HttpConnector {
 fn get_docker_for_tcp(tcp_host_str: String) -> Docker {
     let http = get_http_connector();
     if let Ok(ref certs) = env::var("DOCKER_CERT_PATH") {
-        // fixme: don't unwrap before you know what's in the box
-        // https://github.com/hyperium/hyper/blob/master/src/net.rs#L427-L428
-        let mut connector = SslConnector::builder(SslMethod::tls()).unwrap();
-        connector.set_cipher_list("DEFAULT").unwrap();
-        let cert = &format!("{}/cert.pem", certs);
-        let key = &format!("{}/key.pem", certs);
-        connector
-            .set_certificate_file(&Path::new(cert), SslFiletype::PEM)
-            .unwrap();
-        connector
-            .set_private_key_file(&Path::new(key), SslFiletype::PEM)
-            .unwrap();
+
+        let mut config = rustls::ClientConfig::new();
+
+        let mut cert = std::io::BufReader::new(std::fs::File::open(format!("{}/cert.pem", certs)).expect("ca does not exist"));
+        let cert = rustls::internal::pemfile::certs(&mut cert).expect("invalid certificate");
+
+        let mut key = std::io::BufReader::new(std::fs::File::open(format!("{}/key.pem", certs)).expect("ca does not exist"));
+        let mut key = rustls::internal::pemfile::rsa_private_keys(&mut key).expect("invalid certificate");
+
+        config.set_single_client_cert(cert, key.remove(0));
+
         if env::var("DOCKER_TLS_VERIFY").is_ok() {
-            let ca = &format!("{}/ca.pem", certs);
-            connector.set_ca_file(&Path::new(ca)).unwrap();
+            let mut ca = std::io::BufReader::new(std::fs::File::open(format!("{}/ca.pem", certs)).expect("ca does not exist"));
+
+            config.root_store.add_pem_file(&mut ca).expect("cannot add root ca");
         }
 
         Docker {
             transport: Transport::EncryptedTcp {
                 client: Client::builder()
-                    .build(HttpsConnector::with_connector(http, connector).unwrap()),
+                    .build(HttpsConnector::from((http, config))),
                 host: tcp_host_str,
             },
         }

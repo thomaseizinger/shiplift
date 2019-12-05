@@ -10,7 +10,7 @@ use hyper::{
     header, Body, Chunk, Method, Request, StatusCode,
 };
 #[cfg(feature = "tls")]
-use hyper_openssl::HttpsConnector;
+use hyper_rustls::HttpsConnector;
 #[cfg(feature = "unix-socket")]
 use hyperlocal::UnixConnector;
 #[cfg(feature = "unix-socket")]
