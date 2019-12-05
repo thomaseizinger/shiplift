@@ -121,6 +121,9 @@ impl Transport {
                                     .map_err(Error::Encoding)
                             })
                             .and_then(move |body| {
+
+                                eprintln!("{}", body);
+
                                 future::err(Error::Fault {
                                     code: status,
                                     message: Self::get_error_message(&body).unwrap_or_else(|| {
