@@ -66,7 +66,7 @@ use url::form_urlencoded;
 /// Represents the result of all docker operations
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub const DEFAULT_SOCKET: &str = "/var/run/docker.sock";
+pub const DEFAULT_SOCKET_PATH: &str = "/var/run/docker.sock";
 
 /// Entrypoint interface for communicating with docker daemon
 #[derive(Debug, Clone)]
@@ -1055,9 +1055,9 @@ where
 }
 
 impl Default for Docker {
-    /// Returns a Docker instance listening on [DEFAULT_SOCKET](DEFAULT_SOCKET)
+    /// Returns a Docker instance connected to a unix socket at [DEFAULT_SOCKET_PATH](DEFAULT_SOCKET_PATH)
     fn default() -> Self {
-        Docker::unix(DEFAULT_SOCKET)
+        Docker::unix(DEFAULT_SOCKET_PATH)
     }
 }
 
@@ -1097,12 +1097,12 @@ impl Docker {
     }
 
     /// constructs a new Docker instance for a docker host listening at a url specified by an env var `DOCKER_HOST`,
-    /// falling back to [DEFAULT_SOCKET](DEFAULT_SOCKET)
+    /// falling back to [DEFAULT_SOCKET_PATH](DEFAULT_SOCKET_PATH))
     pub fn from_env() -> Result<Docker> {
         match env::var("DOCKER_HOST").ok() {
             Some(host) => Docker::new(host),
             #[cfg(feature = "unix-socket")]
-            None => Ok(Docker::unix(DEFAULT_SOCKET)),
+            None => Ok(Docker::unix(DEFAULT_SOCKET_PATH)),
             #[cfg(not(feature = "unix-socket"))]
             None => Err(Error::UnsupportedSocket { socket: "unix" }),
         }
@@ -1403,13 +1403,13 @@ mod tests {
 
     #[test]
     fn works_with_all_schemes() {
-        use super::{Docker, DEFAULT_SOCKET};
+        use super::{Docker, DEFAULT_SOCKET_PATH};
 
         Docker::new("tcp://127.0.0.1:80").unwrap();
         Docker::new("http://127.0.0.1:80").unwrap();
         Docker::new("https://127.0.0.1:80").unwrap();
 
-        let uri = format!("unix://{}", DEFAULT_SOCKET);
+        let uri = format!("unix://{}", DEFAULT_SOCKET_PATH);
         Docker::new(uri).unwrap();
         Docker::default();
     }
