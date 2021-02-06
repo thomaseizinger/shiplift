@@ -6,6 +6,9 @@ use std::{error::Error as StdError, fmt, string::FromUtf8Error};
 
 use futures_util::io::Error as IoError;
 
+#[cfg(feature = "tls")]
+use openssl::error::ErrorStack;
+
 #[derive(Debug)]
 pub enum Error {
     SerdeJsonError(SerdeError),
@@ -14,8 +17,23 @@ pub enum Error {
     IO(IoError),
     Encoding(FromUtf8Error),
     InvalidResponse(String),
-    Fault { code: StatusCode, message: String },
+    Fault {
+        code: StatusCode,
+        message: String,
+    },
     ConnectionNotUpgraded,
+    UnsupportedScheme {
+        scheme: String,
+    },
+    #[cfg(feature = "tls")]
+    ErrorStack(ErrorStack),
+}
+
+#[cfg(feature = "tls")]
+impl From<ErrorStack> for Error {
+    fn from(error: ErrorStack) -> Error {
+        Error::ErrorStack(error)
+    }
 }
 
 impl From<SerdeError> for Error {
@@ -75,6 +93,19 @@ impl fmt::Display for Error {
                 f,
                 "expected the docker host to upgrade the HTTP connection but it did not"
             ),
+            Error::UnsupportedScheme { scheme } => write!(
+                f,
+                "unsupported scheme `{}` (perhaps a feature wasn't enabled during compilation)",
+                scheme
+            ),
+            #[cfg(feature = "tls")]
+            Error::ErrorStack(stack) => {
+                write!(f, "Error stack:\n")?;
+                for error in stack.errors() {
+                    write!(f, " - {}\n", error)?;
+                }
+                Ok(())
+            }
         }
     }
 }
