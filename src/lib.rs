@@ -1075,6 +1075,7 @@ impl Docker {
     {
         let uri_str = uri.into();
 
+        #[allow(clippy::single_match)] // this match is much nicer than two separate if lets
         match uri_str.strip_prefix("unix://") {
             #[cfg(feature = "unix-socket")]
             Some(path) => return Ok(Docker::unix(path)),
@@ -1091,7 +1092,7 @@ impl Docker {
                 s => Err(Error::UnsupportedScheme { scheme: s.into() }),
             }
         } else {
-            return Err(Error::UnsupportedScheme { scheme: "".into() });
+            Err(Error::UnsupportedScheme { scheme: "".into() })
         }
     }
 
@@ -1099,9 +1100,7 @@ impl Docker {
     /// falling back to [DEFAULT_SOCKET](DEFAULT_SOCKET)
     pub fn from_env() -> Result<Docker> {
         match env::var("DOCKER_HOST").ok() {
-            Some(host) => {
-                return Docker::new(host);
-            }
+            Some(host) => Docker::new(host),
             #[cfg(feature = "unix-socket")]
             None => Ok(Docker::unix(DEFAULT_SOCKET)),
             #[cfg(not(feature = "unix-socket"))]
