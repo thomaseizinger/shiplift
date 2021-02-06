@@ -4,7 +4,7 @@ use std::env;
 
 #[tokio::main]
 async fn main() {
-    let docker = Docker::new();
+    let docker = Docker::from_env().unwrap();
     let id = env::args()
         .nth(1)
         .expect("You need to specify a container id");

@@ -5,7 +5,7 @@ use std::env;
 
 #[tokio::main]
 async fn main() {
-    let docker = Docker::new();
+    let docker = Docker::from_env().unwrap();
     let containers = docker.containers();
     let id = env::args()
         .nth(1)

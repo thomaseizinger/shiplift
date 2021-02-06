@@ -3,7 +3,7 @@ use std::env;
 
 #[tokio::main]
 async fn main() {
-    let docker = Docker::new();
+    let docker = Docker::from_env().unwrap();
     let networks = docker.networks();
 
     match (env::args().nth(1), env::args().nth(2)) {

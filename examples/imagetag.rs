@@ -6,7 +6,7 @@ use std::env;
 #[tokio::main]
 async fn main() {
     env_logger::init();
-    let docker = Docker::new();
+    let docker = Docker::from_env().unwrap();
     let img = env::args()
         .nth(1)
         .expect("You need to specify an image name");

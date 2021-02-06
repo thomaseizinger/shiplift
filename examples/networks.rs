@@ -4,7 +4,7 @@ use shiplift::Docker;
 async fn main() {
     env_logger::init();
 
-    let docker = Docker::new();
+    let docker = Docker::from_env().unwrap();
 
     match docker.networks().list(&Default::default()).await {
         Ok(networks) => {

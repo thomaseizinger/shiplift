@@ -3,7 +3,7 @@ use std::env;
 
 #[tokio::main]
 async fn main() {
-    let docker = Docker::new();
+    let docker = Docker::from_env().unwrap();
     let mut args = env::args().skip(1);
 
     // First argument is container id

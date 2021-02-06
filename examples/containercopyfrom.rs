@@ -5,7 +5,7 @@ use tar::Archive;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let docker = Docker::new();
+    let docker = Docker::from_env()?;
     let id = env::args()
         .nth(1)
         .expect("Usage: cargo run --example containercopyfrom -- <container> <path in container>");

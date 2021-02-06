@@ -5,7 +5,7 @@ use shiplift::{errors::Error, Docker};
 
 #[tokio::main]
 async fn main() {
-    let docker = Docker::new();
+    let docker = Docker::from_env().unwrap();
     let id = env::args().nth(1).expect("You need to specify an image id");
 
     let mut export_file = OpenOptions::new()

@@ -4,7 +4,7 @@ use std::{env, fs::File};
 
 #[tokio::main]
 async fn main() {
-    let docker = Docker::new();
+    let docker = Docker::from_env().unwrap();
     let path = env::args()
         .nth(1)
         .expect("You need to specify an image path");

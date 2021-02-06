@@ -2,7 +2,7 @@ use shiplift::Docker;
 
 #[tokio::main]
 async fn main() {
-    let docker = Docker::new();
+    let docker = Docker::from_env().unwrap();
     let volumes = docker.volumes();
 
     match volumes.list().await {
