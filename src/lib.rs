@@ -1408,7 +1408,9 @@ mod tests {
         Docker::new("tcp://127.0.0.1:80").unwrap();
         Docker::new("http://127.0.0.1:80").unwrap();
         Docker::new("https://127.0.0.1:80").unwrap();
-        Docker::new(DEFAULT_SOCKET).unwrap();
+
+        let uri = format!("unix://{}", DEFAULT_SOCKET);
+        Docker::new(uri).unwrap();
         Docker::default();
     }
 }
