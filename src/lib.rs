@@ -4,7 +4,7 @@
 //!
 //! ```no_run
 //! # async {
-//! let docker = shiplift::Docker::new();
+//! let docker = shiplift::Docker::default();
 //!
 //! match docker.images().list(&Default::default()).await {
 //!     Ok(images) => {
@@ -66,8 +66,10 @@ use url::form_urlencoded;
 /// Represents the result of all docker operations
 pub type Result<T> = std::result::Result<T, Error>;
 
+pub const DEFAULT_SOCKET: &str = "/var/run/docker.sock";
+
 /// Entrypoint interface for communicating with docker daemon
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Docker {
     transport: Transport,
 }
@@ -991,21 +993,22 @@ fn get_http_connector() -> HttpConnector {
 }
 
 #[cfg(feature = "tls")]
-fn get_docker_for_tcp(tcp_host_str: String) -> Docker {
+fn get_docker_for_tcp<S>(tcp_host_str: S) -> Result<Docker>
+where
+    S: Into<String>,
+{
     let http = get_http_connector();
+    let tcp_host_str = tcp_host_str.into();
+
     if let Ok(ref certs) = env::var("DOCKER_CERT_PATH") {
         // fixme: don't unwrap before you know what's in the box
         // https://github.com/hyperium/hyper/blob/master/src/net.rs#L427-L428
-        let mut connector = SslConnector::builder(SslMethod::tls()).unwrap();
-        connector.set_cipher_list("DEFAULT").unwrap();
+        let mut connector = SslConnector::builder(SslMethod::tls())?;
+        connector.set_cipher_list("DEFAULT")?;
         let cert = &format!("{}/cert.pem", certs);
         let key = &format!("{}/key.pem", certs);
-        connector
-            .set_certificate_file(&Path::new(cert), SslFiletype::PEM)
-            .unwrap();
-        connector
-            .set_private_key_file(&Path::new(key), SslFiletype::PEM)
-            .unwrap();
+        connector.set_certificate_file(&Path::new(cert), SslFiletype::PEM)?;
+        connector.set_private_key_file(&Path::new(key), SslFiletype::PEM)?;
         if env::var("DOCKER_TLS_VERIFY").is_ok() {
             let ca = &format!("{}/ca.pem", certs);
             connector.set_ca_file(&Path::new(ca)).unwrap();
@@ -1021,59 +1024,96 @@ fn get_docker_for_tcp(tcp_host_str: String) -> Docker {
             tcp_host_str
         };
 
-        Docker {
+        Ok(Docker {
             transport: Transport::EncryptedTcp {
                 client: Client::builder()
                     .build(HttpsConnector::with_connector(http, connector).unwrap()),
                 host: tcp_host_str,
             },
-        }
+        })
     } else {
-        Docker {
+        Ok(Docker {
             transport: Transport::Tcp {
                 client: Client::builder().build(http),
                 host: tcp_host_str,
             },
-        }
+        })
     }
 }
 
 #[cfg(not(feature = "tls"))]
-fn get_docker_for_tcp(tcp_host_str: String) -> Docker {
+fn get_docker_for_tcp<S>(tcp_host_str: S) -> Result<Docker>
+where
+    S: Into<String>,
+{
     let http = get_http_connector();
-    Docker {
+    Ok(Docker {
         transport: Transport::Tcp {
             client: Client::builder().build(http),
             host: tcp_host_str,
         },
+    })
+}
+
+impl Default for Docker {
+    /// Returns a Docker instance listening on [DEFAULT_SOCKET](DEFAULT_SOCKET)
+    fn default() -> Self {
+        Docker::unix(DEFAULT_SOCKET)
     }
 }
 
 // https://docs.docker.com/reference/api/docker_remote_api_v1.17/
 impl Docker {
+    /// Constructs a new Docker instance based on uri.
+    ///
+    /// uri can be either a unix or tcp socket, for example `unix:///run/docker.sock` or for tcp
+    /// `tcp://127.0.0.1:80`.
+    ///
+    /// Valid schemes are: `tcp`, `http`, `https`, `unix`
+    pub fn new<S>(uri: S) -> Result<Docker>
+    where
+        S: Into<String>,
+    {
+        let uri_str = uri.into();
+
+        match uri_str.strip_prefix("unix://") {
+            #[cfg(feature = "unix-socket")]
+            Some(path) => return Ok(Docker::unix(path)),
+            #[cfg(not(feature = "unix-socket"))]
+            Some(_) => return Err(Error::UnsupportedScheme { scheme: "unix" }),
+            _ => {}
+        }
+
+        let uri = uri_str.parse::<Uri>()?;
+
+        if let Some(scheme) = uri.scheme() {
+            match scheme.as_str() {
+                "tcp" | "http" | "https" => Docker::tcp(uri_str),
+                s => Err(Error::UnsupportedScheme { scheme: s.into() }),
+            }
+        } else {
+            return Err(Error::UnsupportedScheme { scheme: "".into() });
+        }
+    }
+
     /// constructs a new Docker instance for a docker host listening at a url specified by an env var `DOCKER_HOST`,
-    /// falling back on unix:///var/run/docker.sock
-    pub fn new() -> Docker {
+    /// falling back to [DEFAULT_SOCKET](DEFAULT_SOCKET)
+    pub fn from_env() -> Result<Docker> {
         match env::var("DOCKER_HOST").ok() {
             Some(host) => {
-                #[cfg(feature = "unix-socket")]
-                if let Some(path) = host.strip_prefix("unix://") {
-                    return Docker::unix(path);
-                }
-                let host = host.parse().expect("invalid url");
-                Docker::host(host)
+                return Docker::new(host);
             }
             #[cfg(feature = "unix-socket")]
-            None => Docker::unix("/var/run/docker.sock"),
+            None => Ok(Docker::unix(DEFAULT_SOCKET)),
             #[cfg(not(feature = "unix-socket"))]
-            None => panic!("Unix socket support is disabled"),
+            None => Err(Error::UnsupportedSocket { socket: "unix" }),
         }
     }
 
     /// Creates a new docker instance for a docker host
     /// listening on a given Unix socket.
     #[cfg(feature = "unix-socket")]
-    pub fn unix<S>(socket_path: S) -> Docker
+    fn unix<S>(socket_path: S) -> Docker
     where
         S: Into<String>,
     {
@@ -1087,29 +1127,11 @@ impl Docker {
         }
     }
 
-    /// constructs a new Docker instance for docker host listening at the given host url
-    pub fn host(host: Uri) -> Docker {
-        let tcp_host_str = format!(
-            "{}://{}:{}",
-            host.scheme_str().unwrap(),
-            host.host().unwrap().to_owned(),
-            host.port_u16().unwrap_or(80)
-        );
-
-        match host.scheme_str() {
-            #[cfg(feature = "unix-socket")]
-            Some("unix") => Docker {
-                transport: Transport::Unix {
-                    client: Client::builder().build(UnixConnector),
-                    path: host.path().to_owned(),
-                },
-            },
-
-            #[cfg(not(feature = "unix-socket"))]
-            Some("unix") => panic!("Unix socket support is disabled"),
-
-            _ => get_docker_for_tcp(tcp_host_str),
-        }
+    fn tcp<S>(socket_path: S) -> Result<Docker>
+    where
+        S: Into<String>,
+    {
+        get_docker_for_tcp(socket_path.into())
     }
 
     /// Exports an interface for interacting with docker images
@@ -1309,12 +1331,6 @@ impl Docker {
     }
 }
 
-impl Default for Docker {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "unix-socket")]
@@ -1323,7 +1339,7 @@ mod tests {
         use super::Docker;
         use std::env;
         env::set_var("DOCKER_HOST", "unix:///docker.sock");
-        let d = Docker::new();
+        let d = Docker::from_env().unwrap();
         match d.transport {
             crate::transport::Transport::Unix { path, .. } => {
                 assert_eq!(path, "/docker.sock");
@@ -1333,7 +1349,7 @@ mod tests {
             }
         }
         env::set_var("DOCKER_HOST", "http://localhost:8000");
-        let d = Docker::new();
+        let d = Docker::from_env().unwrap();
         match d.transport {
             crate::transport::Transport::Tcp { host, .. } => {
                 assert_eq!(host, "http://localhost:8000");
@@ -1342,5 +1358,59 @@ mod tests {
                 panic!("Expected transport to be http.");
             }
         }
+    }
+
+    #[cfg(not(feature = "unix-socket"))]
+    #[test]
+    fn no_unix_socket_support_errors() {
+        use super::{Docker, Error};
+
+        let d = Docker::from_env();
+        assert_eq!(d, Err(Error::UnsupportedScheme { scheme: "unix" }));
+    }
+
+    #[test]
+    fn invalid_uri_errors() {
+        use super::{Docker, Error};
+        use std::cmp::PartialEq;
+        impl PartialEq<Docker> for Docker {
+            fn eq(
+                &self,
+                _: &Docker,
+            ) -> bool {
+                true
+            }
+        }
+
+        let d = Docker::new("invalid_uri");
+        assert!(d.is_err());
+        let d = d.unwrap_err();
+        match d {
+            Error::UnsupportedScheme { scheme } => {
+                assert_eq!(scheme, "");
+            }
+            e => panic!("Expected Error::UnsupportedScheme, got - {:?}", e),
+        }
+
+        let d = Docker::new("rand://invalid_uri");
+        assert!(d.is_err());
+        let d = d.unwrap_err();
+        match d {
+            Error::UnsupportedScheme { scheme } => {
+                assert_eq!(scheme, "rand");
+            }
+            e => panic!("Expected Error::UnsupportedScheme, got - {:?}", e),
+        }
+    }
+
+    #[test]
+    fn works_with_all_schemes() {
+        use super::{Docker, DEFAULT_SOCKET};
+
+        Docker::new("tcp://127.0.0.1:80").unwrap();
+        Docker::new("http://127.0.0.1:80").unwrap();
+        Docker::new("https://127.0.0.1:80").unwrap();
+        Docker::new(DEFAULT_SOCKET).unwrap();
+        Docker::default();
     }
 }
