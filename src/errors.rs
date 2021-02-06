@@ -100,9 +100,9 @@ impl fmt::Display for Error {
             ),
             #[cfg(feature = "tls")]
             Error::ErrorStack(stack) => {
-                write!(f, "Error stack:\n")?;
+                writeln!(f, "Error stack:")?;
                 for error in stack.errors() {
-                    write!(f, " - {}\n", error)?;
+                    writeln!(f, " - {}", error)?;
                 }
                 Ok(())
             }
