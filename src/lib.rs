@@ -1370,15 +1370,6 @@ mod tests {
     #[test]
     fn invalid_uri_errors() {
         use super::{Docker, Error};
-        use std::cmp::PartialEq;
-        impl PartialEq<Docker> for Docker {
-            fn eq(
-                &self,
-                _: &Docker,
-            ) -> bool {
-                true
-            }
-        }
 
         let d = Docker::new("invalid_uri");
         assert!(d.is_err());
