@@ -62,6 +62,7 @@ use openssl::ssl::{SslConnector, SslFiletype, SslMethod};
 use serde_json::Value;
 use std::{env, io, io::Read, iter, path::Path, time::Duration};
 use url::form_urlencoded;
+use hyper::http::uri::Scheme;
 
 /// Represents the result of all docker operations
 pub type Result<T> = std::result::Result<T, Error>;
@@ -1086,13 +1087,10 @@ impl Docker {
 
         let uri = uri_str.parse::<Uri>()?;
 
-        if let Some(scheme) = uri.scheme() {
-            match scheme.as_str() {
-                "tcp" | "http" | "https" => Docker::tcp(uri_str),
-                s => Err(Error::UnsupportedScheme { scheme: s.into() }),
-            }
-        } else {
-            Err(Error::UnsupportedScheme { scheme: "".into() })
+        match uri.scheme().map(Scheme::as_ref) {
+            Some("tcp") | Some("http") | Some("https") => Docker::tcp(uri_str),
+            Some(unsupported) => Err(Error::UnsupportedScheme { scheme: unsupported.into() }),
+            None => Err(Error::UnsupportedScheme { scheme: "".into() })
         }
     }
 
